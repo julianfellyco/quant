@@ -1,45 +1,12 @@
 # .github/workflows/ci.yml
 #
-# Quant Developer CI — three independent jobs:
+# Quant Developer CI — four independent jobs:
 #
 #   lob-simulator  : unit tests for the matching engine (core/, metrics/)
-#   backtester     : unit tests for slippage, vectorised engine, statistics
+#   backtester     : unit tests for slippage, vectorised engine, upgrades (OFI,
+#                    pairs, stress, walkforward), and API smoke tests
+#   frontend       : TypeScript type-check + Vite production build
 #   benchmark      : LOB latency check — only runs when both test jobs pass
-#
-# Bug fixes applied vs. original
-# ────────────────────────────────────────────────────────────────────────────
-# Bug 1  --cov=src         → src/ does not exist. Replaced with per-job
-#                             --cov=lob_simulator and --cov=backtester so
-#                             coverage actually measures the source packages.
-#
-# Bug 2  pytest tests/     → no tests/ at repo root. Each job sets
-#                             working-directory to its own subdirectory so
-#                             pytest discovers the correct test tree.
-#
-# Bug 3  missing deps      → sortedcontainers (required by lob_simulator),
-#                             pyarrow (required by polars Parquet ops) were
-#                             absent. lob_simulator installs via pyproject.toml
-#                             [dev] extras; backtester uses requirements-ci.txt.
-#
-# Bug 4  no PYTHONPATH     → backtester has no pyproject.toml / editable
-#                             install, so `import backtester` raises
-#                             ModuleNotFoundError at test-collection time.
-#                             Fixed with PYTHONPATH: ${{ github.workspace }}.
-#
-# Bug 5  missing script    → scripts/benchmark_latency.py did not exist.
-#                             Created at scripts/benchmark_latency.py.
-#
-# Bug 6  cache unreliable  → cache: 'pip' without cache-dependency-path uses
-#                             a non-deterministic key. Added explicit paths.
-#
-# Bug 7  Python 3.10       → pyproject.toml declares requires-python=">=3.11".
-#                             pip install fails on 3.10. Matrix updated to
-#                             ["3.11", "3.12"].
-#
-# Bug 8  single job        → one failure kills the other project's tests with
-#                             no actionable output. Split into three jobs with
-#                             fail-fast: false so the matrix is fully exhausted.
-# ────────────────────────────────────────────────────────────────────────────
 
 name: Quant Developer CI
 
@@ -55,23 +22,14 @@ env:
 
 jobs:
 
-  # ──────────────────────────────────────────────────────────────────────── #
-  # Job 1 — LOB Matching Engine                                               #
-  #                                                                            #
-  # Installs via pyproject.toml [dev] extras (sortedcontainers + pytest-cov). #
-  # working-directory lets pytest find tests/ without an absolute path.       #
-  # --cov=lob_simulator measures the installed package; --cov-fail-under      #
-  # ensures the CI fails if we regress below 80% branch coverage.             #
-  # ──────────────────────────────────────────────────────────────────────── #
+  # ─── Job 1: LOB Simulator ─────────────────────────────────────────────── #
   lob-simulator:
     name: "LOB Simulator / Python ${{ matrix.python-version }}"
     runs-on: ubuntu-latest
 
     strategy:
-      # Bug 8 fix: run the full matrix even if one Python version fails
       fail-fast: false
       matrix:
-        # Bug 7 fix: 3.10 conflicts with requires-python=">=3.11"
         python-version: ["3.11", "3.12"]
 
     defaults:
@@ -79,22 +37,18 @@ jobs:
         working-directory: lob_simulator
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          # Bug 6 fix: tie the cache key to the dependency manifest
           cache-dependency-path: lob_simulator/pyproject.toml
 
-      - name: Install package + dev dependencies
-        # Bug 3 fix: [dev] pulls in sortedcontainers, pytest, pytest-cov
+      - name: Install package + dev deps
         run: pip install -e ".[dev]"
 
-      - name: Run LOB tests with coverage
+      - name: Run tests
         run: |
           pytest tests/ -v \
             --tb=short \
@@ -103,13 +57,7 @@ jobs:
             --cov-fail-under=80
 
 
-  # ──────────────────────────────────────────────────────────────────────── #
-  # Job 2 — Backtester                                                         #
-  #                                                                            #
-  # No editable install (no pyproject.toml), so PYTHONPATH points to the      #
-  # workspace root so `import backtester` resolves to backtester/__init__.py. #
-  # requirements-ci.txt pins all four missing deps.                           #
-  # ──────────────────────────────────────────────────────────────────────── #
+  # ─── Job 2: Backtester ────────────────────────────────────────────────── #
   backtester:
     name: "Backtester / Python ${{ matrix.python-version }}"
     runs-on: ubuntu-latest
@@ -120,27 +68,22 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          # Bug 6 fix: deterministic cache key from the requirements file
           cache-dependency-path: backtester/requirements-ci.txt
 
-      - name: Install dependencies
-        # Bug 3 fix: requirements-ci.txt adds sortedcontainers + pyarrow
-        run: pip install -r backtester/requirements-ci.txt
+      - name: Install deps
+        run: |
+          pip install -r backtester/requirements-ci.txt
+          pip install fastapi uvicorn[standard] httpx
 
-      - name: Run backtester tests with coverage
+      - name: Run tests
         working-directory: backtester
         env:
-          # Bug 4 fix: backtester has no editable install.
-          # PYTHONPATH=$GITHUB_WORKSPACE makes `import backtester` resolve to
-          # $WORKSPACE/backtester/__init__.py without modifying package structure.
           PYTHONPATH: ${{ github.workspace }}
         run: |
           pytest tests/ -v \
@@ -150,26 +93,39 @@ jobs:
             --cov-fail-under=75
 
 
-  # ──────────────────────────────────────────────────────────────────────── #
-  # Job 3 — Latency Benchmark                                                  #
-  #                                                                            #
-  # Gated on both test jobs so it only runs on a green build.                 #
-  # Asserts P99 latency < 1 ms for insert, cancel, and match operations.      #
-  # Uses a fixed Python version (no matrix) — timing variance is the metric,  #
-  # not cross-version compatibility.                                           #
-  # ──────────────────────────────────────────────────────────────────────── #
+  # ─── Job 3: Frontend ──────────────────────────────────────────────────── #
+  frontend:
+    name: "Frontend / Node 20"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backtester/webapp/package-lock.json
+
+      - name: Install
+        working-directory: backtester/webapp
+        run: npm ci
+
+      - name: Type-check + build
+        working-directory: backtester/webapp
+        run: npm run build
+
+
+  # ─── Job 4: Latency Benchmark ─────────────────────────────────────────── #
   benchmark:
     name: "Latency Benchmark"
-    # Bug 8 fix: gates on both test jobs passing before running
     needs: [lob-simulator, backtester]
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -179,6 +135,4 @@ jobs:
         run: pip install -e lob_simulator/
 
       - name: Run latency benchmark
-        # Bug 5 fix: scripts/benchmark_latency.py now exists.
-        # Exits 1 if any operation exceeds the 1 ms P99 threshold.
         run: python scripts/benchmark_latency.py
