@@ -1,13 +1,13 @@
 """
-engine/costs.py — Transaction cost model with event-driven spread spiking
-                  and volume-based liquidity adjustment.
+engine/costs.py — Transaction cost model with event-driven spread spiking,
+                  volume-based liquidity adjustment, and square-root market impact.
 
 Cost decomposition
 ------------------
 Total cost = spread_cost + market_impact
 
   spread_cost   = notional × (base_bps × event_multiplier) / 10_000
-  market_impact = notional × α × |Q| / adjusted_lc / 10_000
+  market_impact = notional × α × √(|Q| / adjusted_lc) / 10_000
 
   adjusted_lc   = base_lc × volume_ratio          ← volume liquidity adjustment
   volume_ratio  = bar_volume / avg_bar_volume      ← clipped [0.1, 5.0]
@@ -55,8 +55,10 @@ COST_PARAMS: dict[str, dict] = {
     "PFE": {
         # ≈1 cent spread on $28 stock ≈ 3.6 bps.  Add 1.4 bps fees → 5 bps.
         "base_bps":             5.0,
-        # Impact: 50 bps when trading 1× ADV.  Linear → 5 bps at 10% ADV.
-        "impact_coefficient":  50.0,
+        # Square-root impact coefficient.  Calibrated so that at 10% ADV
+        # (2.8M shares), impact = 16 × √0.10 ≈ 5 bps — matching empirical
+        # estimates for large-cap US equities (Almgren-Chriss η ≈ 0.1).
+        "impact_coefficient":  16.0,
         # 2024 average daily volume (shares). Source: Bloomberg consensus.
         "base_liquidity":   28_000_000,
         # Spread multiplier during event windows (earnings, FDA decisions).
@@ -66,8 +68,9 @@ COST_PARAMS: dict[str, dict] = {
     "NVO": {
         # NVO ADR: wider spread (~5 bps) + ADR conversion fee (~2 bps) = 8 bps.
         "base_bps":             8.0,
-        # NVO ADR is ~8× less liquid than PFE → higher impact coefficient.
-        "impact_coefficient":  80.0,
+        # Square-root impact coefficient.  At 10% ADV (350K shares),
+        # impact = 25 × √0.10 ≈ 7.9 bps — consistent with ADR illiquidity.
+        "impact_coefficient":  25.0,
         "base_liquidity":    3_500_000,
         # NVO has extreme binary event risk (GLP-1 trial readouts, FDA CVD
         # indication).  Spread during announcement bars can be 5–8× normal.
@@ -101,12 +104,24 @@ def compute_transaction_costs(
         effective_bps = base_bps × (event_spread_mult if is_event else 1.0)
         spread_cost   = |notional| × effective_bps / 10_000
 
-    Stage 2 — Linear market impact (per trade, volume-adjusted):
+    Stage 2 — Square-root market impact (per trade, volume-adjusted):
         volume_ratio  = (bar_volume / avg_bar_volume).clip(0.1, 5.0)
         adjusted_lc   = liquidity_constant × volume_ratio
-        impact_bps    = impact_coefficient × |trade_size| / adjusted_lc
+        participation = |trade_size| / adjusted_lc
+        impact_bps    = impact_coefficient × √participation
         atr_scalar    = (atr / median_atr).clip(0.5, 3.0)
         impact_cost   = |notional| × impact_bps × atr_scalar / 10_000
+
+    Square-root law rationale (Almgren-Chriss)
+    ------------------------------------------
+    Empirically, market impact ∝ σ × √(Q/ADV).  Doubling trade size does NOT
+    double impact — the exponent 0.5 is remarkably universal across asset classes.
+    The linear model (exponent 1.0) is overly punitive on large trades and too
+    lenient on small ones.  Using the square-root law means:
+      - A 100× increase in trade size → 10× increase in impact bps (not 100×)
+      - At very large sizes (Q ≈ ADV) impact is still bounded sub-linearly
+    impact_coefficient is calibrated so that at 10% ADV the impact equals the
+    empirically-observed values (PFE ≈ 5 bps, NVO ≈ 8 bps at 10% participation).
 
     Returns:
         Series[Float64] of non-negative USD costs, zero when trade_size == 0.
@@ -132,7 +147,8 @@ def compute_transaction_costs(
 
     adjusted_lc = pl.Series([float(liquidity_constant)] * len(trade_sizes)) * vol_ratio
 
-    impact_bps_series = abs_trade / adjusted_lc * impact_coefficient
+    participation     = abs_trade / adjusted_lc
+    impact_bps_series = impact_coefficient * participation.sqrt()
 
     # ATR regime: costs scale with realised volatility (proxy for spread widening)
     median_atr = atr.median() or 1e-9

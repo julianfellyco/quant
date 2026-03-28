@@ -14,7 +14,7 @@ negative = sell), and is designed for throughput, not ergonomics.
   - Validation at system boundaries (negative sizes, unknown tickers)
 
 It decomposes the total cost into spread and impact components explicitly,
-making assertions like "impact cost grows non-linearly with size" unambiguous.
+making assertions like "impact grows super-linearly with size" unambiguous.
 
 Cost decomposition (single trade, no volume-regime adjustment)
 --------------------------------------------------------------
@@ -24,19 +24,21 @@ Cost decomposition (single trade, no volume-regime adjustment)
                  ← fixed fraction of notional; scales linearly with trade_size
                  ← represents half-spread + exchange/clearing fees
 
-  impact_bps   = trade_size / base_liquidity × impact_coefficient
-  impact_cost  = notional × impact_bps / 10_000
-               = price × trade_size² × impact_coefficient / (base_lc × 10_000)
-                 ← grows as trade_size²: this is the non-linearity
+  participation = trade_size / base_liquidity
+  impact_bps    = impact_coefficient × √participation
+  impact_cost   = notional × impact_bps / 10_000
+                  ← grows as trade_size^1.5 (Almgren-Chriss square-root law)
 
-Why impact scales as trade_size²
+Square-root law (Almgren-Chriss)
 ---------------------------------
-  impact_bps ∝ trade_size       (more shares consumed → deeper in the book)
-  notional    ∝ trade_size       (more shares × same price)
-  impact_cost = notional × impact_bps ∝ trade_size²
+  participation = Q / ADV           (fraction of daily volume consumed)
+  impact_bps    ∝ √participation    (concave in Q — empirically universal)
+  notional       ∝ Q
+  impact_cost    = notional × impact_bps ∝ Q^1.5
 
-Doubling trade size → 4× impact cost, but only 2× spread cost.
-At large sizes the impact term dominates and cost-per-share rises linearly.
+Doubling trade size → 2^1.5 ≈ 2.83× impact cost (not 4× as in linear models).
+A 100× size increase → 10× impact cost per share (not 100×).
+This prevents the model being unrealistically punitive on large trades.
 
 ATR note
 --------
@@ -49,6 +51,7 @@ the scalar.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from .costs import COST_PARAMS
@@ -92,13 +95,13 @@ class SlippageResult:
     trade_size            : shares traded (0 → all costs zero)
     notional              : trade_size × price
     spread_cost           : fixed-fraction cost (exchange fees + half-spread)
-    impact_cost           : market-impact cost (grows as trade_size²)
+    impact_cost           : market-impact cost (grows as trade_size^1.5)
     total_cost            : spread_cost + impact_cost
     cost_per_share        : total_cost / trade_size  (0 when trade_size == 0)
     cost_bps              : total_cost / notional × 10_000  (0 when notional == 0)
     spread_cost_per_share : spread_cost / trade_size
     impact_cost_per_share : impact_cost / trade_size
-                            grows linearly with trade_size — the key non-linearity
+                            grows as √trade_size — the key super-linearity
     """
     trade_size:             int
     notional:               float
@@ -222,18 +225,19 @@ class SlippageModel:
         # Doubles when trade_size doubles (same fraction of a larger notional).
         spread_cost = notional * p["base_bps"] / 10_000
 
-        # ── Market impact: quadratic in trade_size ───────────────────── #
-        # impact_bps grows with trade_size because deeper book levels are
-        # consumed, each at a worse price.  Combined with notional also
-        # growing, impact_cost scales as trade_size².
+        # ── Market impact: square-root law (Almgren-Chriss) ─────────────── #
+        # participation = Q / ADV  (fraction of daily liquidity consumed)
+        # impact_bps    = κ × √participation  (concave in Q — empirically correct)
+        # impact_cost   = notional × impact_bps / 10_000  ∝ Q^1.5
         #
-        # impact_cost_per_share = price × trade_size × impact_coeff / (lc × 10_000)
-        # → grows linearly with trade_size (even though total is quadratic)
+        # impact_cost_per_share ∝ √trade_size  (sub-linear vs total, but still
+        # increasing — the key non-linearity vs the fixed spread component).
         #
         # atr_scalar = 1.0 for fixed-ATR single-bar calculations.
         # (In the vectorised engine, atr/median_atr produces regime scaling.)
-        impact_bps  = trade_size / p["base_liquidity"] * p["impact_coefficient"]
-        impact_cost = notional * impact_bps / 10_000   # × atr_scalar (= 1.0)
+        participation = trade_size / p["base_liquidity"]
+        impact_bps    = p["impact_coefficient"] * math.sqrt(participation)
+        impact_cost   = notional * impact_bps / 10_000   # × atr_scalar (= 1.0)
 
         total_cost = spread_cost + impact_cost
 

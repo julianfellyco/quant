@@ -6,20 +6,23 @@ market-data variance from the assertions.  Expected values are derived
 analytically from the cost formulas so every test also serves as a
 specification of the model's mathematical guarantees.
 
-Cost formula recap (for manual verification)
---------------------------------------------
-  notional     = trade_size × price
-  spread_cost  = notional × base_bps / 10_000            ← linear in trade_size
-  impact_bps   = trade_size / base_liquidity × impact_coeff
-  impact_cost  = notional × impact_bps / 10_000          ← quadratic in trade_size
-  cost_per_share  = total_cost / trade_size
-  impact_cps      = impact_cost / trade_size              ← linear in trade_size
+Cost formula recap (square-root law — Almgren-Chriss)
+------------------------------------------------------
+  notional      = trade_size × price
+  spread_cost   = notional × base_bps / 10_000            ← linear in trade_size
+  participation = trade_size / base_liquidity
+  impact_bps    = impact_coeff × √participation            ← square-root of participation
+  impact_cost   = notional × impact_bps / 10_000          ← grows as trade_size^1.5
+  cost_per_share   = total_cost / trade_size
+  impact_cps       = impact_cost / trade_size              ← grows as √trade_size
 
-PFE calibration: base_bps=5, impact_coeff=50, lc=28,000,000
-NVO calibration: base_bps=8, impact_coeff=80, lc=3,500,000
+PFE calibration: base_bps=5, impact_coeff=16, lc=28,000,000
+NVO calibration: base_bps=8, impact_coeff=25, lc=3,500,000
 """
 
 from __future__ import annotations
+
+import math
 
 import pytest
 
@@ -157,59 +160,63 @@ class TestSlippageModels:
         trade due to the growing market-impact component.
 
         Analytical derivation at price=$100, PFE (base_bps=5, lc=28M,
-        impact_coeff=50):
+        impact_coeff=16, square-root law):
 
             small (100 shares):
-                spread_cps  = $100 × 5/10,000            = $0.0500
-                impact_cps  = $100 × 100/28M × 50/10,000 = $0.0000179
-                total_cps                                 ≈ $0.05002
+                spread_cps  = $100 × 5/10,000                        = $0.0500
+                impact_bps  = 16 × √(100/28M) = 16 × 0.001890       = 0.0302 bps
+                impact_cps  = $100 × 0.0302/10,000                   = $0.000302
+                total_cps                                             ≈ $0.05030
 
             large (1M shares):
-                spread_cps  = $100 × 5/10,000            = $0.0500  (unchanged)
-                impact_cps  = $100 × 1M/28M × 50/10,000  = $0.1786
-                total_cps                                 ≈ $0.2286
+                spread_cps  = $100 × 5/10,000                        = $0.0500
+                impact_bps  = 16 × √(1M/28M) = 16 × 0.18898         = 3.024 bps
+                impact_cps  = $100 × 3.024/10,000                    = $0.03024
+                total_cps                                             ≈ $0.08024
 
-            Ratio of total_cps: 0.2286 / 0.05002 ≈ 1.36×
-
-        Why only 1.36×?  PFE's ADV of 28M shares means a 1M-share trade
-        consumes just 3.6% of daily volume.  The impact is real but spread
-        still dominates total_cps for the small trade.
+            Ratio of total_cps: 0.08024 / 0.05030 ≈ 1.60×
 
         The true non-linearity is in the isolated impact component:
-            impact_cps(1M) / impact_cps(100) = 10,000×
-        (tested separately in test_impact_cost_per_share_grows_linearly_with_trade_size)
+            impact_cps(1M) / impact_cps(100) = √(1M/100) = √10,000 = 100×
+        (tested separately in test_impact_cost_per_share_grows_as_sqrt_of_trade_size)
         """
         small = pfe.calculate(100,       mock_market)
         large = pfe.calculate(1_000_000, mock_market)
 
-        # Exact ratio by formula: ≈1.357× — use 1.3× as a guaranteed lower bound
+        # Ratio ≈ 1.60× — use 1.3× as a conservative lower bound
         assert large.cost_per_share > 1.3 * small.cost_per_share, (
             f"Expected large trade cps ({large.cost_per_share:.6f}) "
             f"> 1.3× small trade cps ({small.cost_per_share:.6f})"
         )
 
-        # The impact component per share grows far more dramatically (10,000×)
-        assert large.impact_cost_per_share > 1_000 * small.impact_cost_per_share, (
-            "impact_cps must be orders-of-magnitude higher for the 1M-share trade"
+        # The impact component per share grows as √(10,000) = 100× (sqrt law)
+        assert large.impact_cost_per_share > 30 * small.impact_cost_per_share, (
+            "impact_cps must be significantly higher for the 1M-share trade "
+            "(sqrt law: 100× for 10,000× size increase)"
         )
 
-    def test_impact_cost_per_share_grows_linearly_with_trade_size(
+    def test_impact_cost_per_share_grows_as_sqrt_of_trade_size(
         self, pfe: SlippageModel, mock_market: MarketData
     ) -> None:
         """
-        impact_cost_per_share = price × trade_size × impact_coeff / (lc × 10,000)
-        → linear in trade_size: 10× the shares → 10× the impact_cps.
+        impact_cost_per_share ∝ √trade_size  (square-root law).
 
-        This is the non-linearity in total cost:
-            impact_cost = notional × impact_bps ∝ trade_size²
-        Per-share: impact_cps ∝ trade_size (still super-linear vs fixed fee).
+        impact_bps  = κ × √(Q/LC)       ← per participation rate
+        impact_cost = notional × impact_bps = price × Q × κ × √(Q/LC)  ∝  Q^1.5
+        impact_cps  = impact_cost / Q   ∝  √Q
+
+        10× the shares → √10 ≈ 3.162× the impact cost per share.
+
+        This is concave (less than linear) — the square-root law is specifically
+        chosen to avoid over-penalising large, institution-sized trades where
+        the linear model would be unrealistically punitive.
         """
         r_base  = pfe.calculate(100_000,   mock_market)
         r_10x   = pfe.calculate(1_000_000, mock_market)
 
-        # 10× trade size → 10× impact_cost_per_share
+        # 10× trade size → √10 × impact_cost_per_share (square-root scaling)
         assert r_10x.impact_cost_per_share == pytest.approx(
-            10.0 * r_base.impact_cost_per_share, rel=1e-6
+            math.sqrt(10.0) * r_base.impact_cost_per_share, rel=1e-6
         )
 
     def test_large_trade_impact_cost_dominates_spread_cost(
@@ -233,48 +240,55 @@ class TestSlippageModels:
         impact = r.impact_cost
         assert spread > 0 and impact > 0
 
-    def test_impact_cost_grows_quadratically_in_total(
+    def test_impact_cost_grows_super_linearly_in_total(
         self, pfe: SlippageModel, mock_market: MarketData
     ) -> None:
         """
-        Quadratic scaling of total impact cost:
-            impact_cost(Q) ∝ Q²
+        Square-root law: total impact_cost ∝ Q^1.5.
 
-        If we double the trade size, impact_cost quadruples.
-        (Because both notional and impact_bps are each proportional to Q.)
+        Doubling the trade size:
+            impact_bps  → ×√2       (from √Q scaling)
+            notional    → ×2        (from Q scaling)
+            impact_cost → ×2√2 ≈ 2.828×  (product of both)
+
+        This is super-linear (> 2×) but sub-quadratic (< 4×).
+        The Almgren-Chriss law prevents the model from being as punitive
+        as a full quadratic (linear impact_bps × linear notional).
         """
         r1 = pfe.calculate(100_000, mock_market)
         r2 = pfe.calculate(200_000, mock_market)
 
+        expected_ratio = 2.0 * math.sqrt(2.0)   # 2^1.5 ≈ 2.8284
         assert r2.impact_cost == pytest.approx(
-            4.0 * r1.impact_cost, rel=1e-6
+            expected_ratio * r1.impact_cost, rel=1e-6
         ), (
-            "Doubling trade size must quadruple impact cost. "
+            f"Doubling trade size must scale impact by 2√2 ≈ {expected_ratio:.4f}. "
             f"Got: r1={r1.impact_cost:.4f}, r2={r2.impact_cost:.4f}, "
-            f"ratio={r2.impact_cost/r1.impact_cost:.4f} (expected 4.0)"
+            f"ratio={r2.impact_cost/r1.impact_cost:.4f}"
         )
 
     def test_impact_cost_per_share_exact_value_pfe(
         self, pfe: SlippageModel, mock_market: MarketData
     ) -> None:
         """
-        Verify exact impact_cost_per_share formula for PFE.
+        Verify exact impact_cost_per_share formula for PFE (square-root law).
 
-        impact_cps = price × trade_size × impact_coeff / (lc × 10_000)
-                   = $100 × 280,000 × 50 / (28,000,000 × 10,000)
-                   = $100 × 0.0005
-                   = $0.05 exactly
+        impact_cps = price × κ × √(Q/LC) / 10_000
+
+        At trade_size = 560,000 shares:
+            participation = 560,000 / 28,000,000 = 0.02
+            impact_bps    = 16 × √0.02 = 16 × 0.14142 ≈ 2.2628 bps
+            impact_cost   = (560,000 × $100) × 2.2628 / 10,000 = $12,671.7
+            impact_cps    = $12,671.7 / 560,000 ≈ $0.02263
         """
-        # trade_size = lc / impact_coeff = 28M/50 = 560,000 shares
-        # → impact_bps = 560,000/28M × 50 = 1.0 bps
-        # → impact_cost = (560,000 × $100) × 1.0/10,000 = $5,600
-        # → impact_cps  = $5,600 / 560,000 = $0.01
         trade_size = 560_000
         r = pfe.calculate(trade_size, mock_market)
 
         expected_impact_cps = (
-            mock_market.price * trade_size * pfe.impact_coefficient
-            / (pfe.base_liquidity * 10_000)
+            mock_market.price
+            * pfe.impact_coefficient
+            * math.sqrt(trade_size / pfe.base_liquidity)
+            / 10_000
         )
         assert r.impact_cost_per_share == pytest.approx(expected_impact_cps, rel=1e-9)
 
@@ -332,9 +346,11 @@ class TestSlippageModels:
         r_nvo = nvo.calculate(10_000, mock_market)
 
         assert r_nvo.impact_cost > r_pfe.impact_cost
-        # Ratio should be at least 5× (conservative bound)
-        assert r_nvo.impact_cost > 5.0 * r_pfe.impact_cost, (
-            f"NVO impact ({r_nvo.impact_cost:.4f}) should be >5× "
+        # With sqrt law at 10K shares:
+        # PFE: 16 × √(10K/28M) = 0.302 bps → $30.2
+        # NVO: 25 × √(10K/3.5M) = 1.336 bps → $133.6  → ratio ≈ 4.4×
+        assert r_nvo.impact_cost > 4.0 * r_pfe.impact_cost, (
+            f"NVO impact ({r_nvo.impact_cost:.4f}) should be >4× "
             f"PFE impact ({r_pfe.impact_cost:.4f})"
         )
 
@@ -363,23 +379,24 @@ class TestSlippageModels:
         """
         Verify analytically-derived cost_bps for both tickers.
 
-        PFE 10K shares @ $100:
+        PFE 10K shares @ $100 (sqrt law: impact_bps = 16 × √(Q/LC)):
             notional       = $1,000,000
             spread_bps     = 5 bps
-            impact_bps     = 10K/28M × 50 = 0.01786 bps
-            total_bps      ≈ 5.018 bps
+            impact_bps     = 16 × √(10K/28M) = 16 × 0.01890 ≈ 0.302 bps
+            total_bps      ≈ 5.302 bps
 
-        NVO 10K shares @ $100:
+        NVO 10K shares @ $100 (sqrt law: impact_bps = 25 × √(Q/LC)):
             notional       = $1,000,000
             spread_bps     = 8 bps
-            impact_bps     = 10K/3.5M × 80 = 0.2286 bps
-            total_bps      ≈ 8.229 bps
+            impact_bps     = 25 × √(10K/3.5M) = 25 × 0.05345 ≈ 1.336 bps
+            total_bps      ≈ 9.336 bps
         """
         r_pfe = pfe.calculate(10_000, mock_market)
         r_nvo = nvo.calculate(10_000, mock_market)
 
-        pfe_expected_bps = 5.0 + (10_000 / 28_000_000 * 50)
-        nvo_expected_bps = 8.0 + (10_000 / 3_500_000  * 80)
+        # Square-root law: impact_bps = κ × √(Q/LC)
+        pfe_expected_bps = 5.0 + 16.0 * math.sqrt(10_000 / 28_000_000)
+        nvo_expected_bps = 8.0 + 25.0 * math.sqrt(10_000 / 3_500_000)
 
         assert r_pfe.cost_bps == pytest.approx(pfe_expected_bps, rel=1e-6)
         assert r_nvo.cost_bps == pytest.approx(nvo_expected_bps, rel=1e-6)
