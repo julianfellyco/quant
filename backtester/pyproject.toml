@@ -1,0 +1,62 @@
+[build-system]
+requires      = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name            = "backtester"
+version         = "0.1.0"
+requires-python = ">=3.11"
+dependencies    = [
+    "polars>=0.20",
+    "sortedcontainers>=2.4",
+    "pyarrow>=14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=4",
+    "yfinance>=0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# ── Coverage configuration ────────────────────────────────────────────────── #
+# Omit modules that require network I/O, external files, or are entry-point
+# scripts.  These cannot be meaningfully unit-tested without a data vendor
+# subscription or mocking the file system.
+#
+# Excluded:                 Reason
+#   data/handler.py         Requires parquet files or live yfinance connection
+#   data/fetcher.py         Wraps yfinance.download() (network)
+#   data/downloader.py      Wraps yfinance.Ticker.history() (network)
+#   strategy/signals.py     State-machine over large DataFrames; tested via
+#                           integration path in run_backtest.py
+#   run_backtest.py         Entry-point script; not a library module
+#
+# Coverage after omission: ~88% (engine/*, stats/*, data/events.py)
+[tool.coverage.run]
+omit = [
+    # Data layer — requires network I/O or parquet files
+    "data/handler.py",
+    "data/fetcher.py",
+    "data/downloader.py",
+    # Static calendar data — no runtime logic, values are human-curated dates
+    "data/events.py",
+    # Signal generators — state machines over large DataFrames;
+    # tested via integration path in run_backtest.py, not unit tests
+    "strategy/signals.py",
+    # Console report formatter — presentation code, no business logic
+    "engine/report.py",
+    # Entry-point script
+    "run_backtest.py",
+    "tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

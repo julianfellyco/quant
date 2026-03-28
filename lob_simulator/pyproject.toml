@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lob-simulator"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "sortedcontainers>=2.4",
+]
+
+# Flat-layout fix: setuptools auto-discovery finds core/, metrics/, tests/ as
+# ambiguous top-level packages and refuses to build.  We fix this by:
+#   1. Mapping the package name "lob_simulator" to "." (the project root)
+#   2. Listing sub-packages explicitly — no filesystem scan needed
+[tool.setuptools]
+packages = ["lob_simulator", "lob_simulator.core", "lob_simulator.metrics"]
+
+[tool.setuptools.package-dir]
+"lob_simulator" = "."
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-cov",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

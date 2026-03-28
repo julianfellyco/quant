@@ -1,0 +1,29 @@
+# backtester/requirements-ci.txt
+#
+# Pinned to minimum compatible versions.
+# Update upper bounds here when you drop support for an older API.
+#
+# Bug 3 fix: sortedcontainers and pyarrow were missing from the original
+# CI install step, causing ImportError at pytest collection time.
+
+# ── Core runtime ────────────────────────────────────────────────────── #
+
+# Columnar DataFrame engine; Parquet I/O requires the pyarrow backend.
+polars>=0.20
+
+# Skip-list sorted mapping used by the LOB simulator imported inside
+# the backtester's test suite (test_engine.py imports from lob_simulator).
+sortedcontainers>=2.4
+
+# Polars uses pyarrow as its Parquet read/write backend.
+# Without this, pl.read_parquet() / df.write_parquet() raise:
+#   ModuleNotFoundError: No module named 'pyarrow'
+pyarrow>=14
+
+# ── Test tooling ─────────────────────────────────────────────────────── #
+pytest>=8
+pytest-cov>=4
+
+# ── Optional data source (network calls skipped in CI via synthetic data) #
+# Included so import-time checks in downloader.py don't fail at collection.
+yfinance>=0.2
