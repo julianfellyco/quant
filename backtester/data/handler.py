@@ -283,7 +283,40 @@ class DataHandler:
         raw = yf.download(ticker, start=start, end=end,
                            auto_adjust=True, progress=False)
         if raw.empty:
-            raise ValueError(f"No daily data from yfinance: {ticker}")
+            import difflib
+            # Known shorthand → yfinance symbol aliases
+            ALIASES: dict[str, str] = {
+                "LQ45":    "^JKLQ45",
+                "IHSG":    "^JKSE",
+                "JCI":     "^JKSE",
+                "JKSE":    "^JKSE",
+                "NIKKEI":  "^N225",
+                "N225":    "^N225",
+                "HSI":     "^HSI",
+                "KOSPI":   "^KS11",
+                "FTSE":    "^FTSE",
+                "DAX":     "^GDAXI",
+                "CAC40":   "^FCHI",
+                "DJI":     "^DJI",
+                "DJIA":    "^DJI",
+                "SP500":   "^GSPC",
+                "NASDAQ":  "^IXIC",
+                "VIX":     "^VIX",
+            }
+            alias = ALIASES.get(ticker.upper())
+            if alias:
+                raise ValueError(
+                    f"Ticker not found: '{ticker}'. Did you mean {alias}?"
+                )
+            common = [
+                "AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","BRK-B","JPM","V",
+                "NVO","PFE","LLY","JNJ","ABBV","MRK","AMGN","GILD","BIIB","MRNA",
+                "SPY","QQQ","IWM","DIA","GLD","TLT","BTC-USD","ETH-USD",
+                "^JKLQ45","^JKSE","^GSPC","^IXIC","^DJI","^VIX",
+            ]
+            suggestion = difflib.get_close_matches(ticker.upper(), common, n=1, cutoff=0.6)
+            hint = f" Did you mean {suggestion[0]}?" if suggestion else " Check the ticker symbol."
+            raise ValueError(f"Ticker not found: '{ticker}'.{hint}")
 
         import pandas as pd
         if isinstance(raw.columns, pd.MultiIndex):
