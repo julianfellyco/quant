@@ -24,6 +24,11 @@ pyarrow>=14
 pytest>=8
 pytest-cov>=4
 
+# ── Statistical analysis ────────────────────────────────────────────────── #
+# Used by PairsScanner for Engle-Granger cointegration tests.
+statsmodels>=0.14
+numpy>=1.26
+
 # ── Optional data source (network calls skipped in CI via synthetic data) #
 # Included so import-time checks in downloader.py don't fail at collection.
 yfinance>=0.2

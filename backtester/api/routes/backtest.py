@@ -40,6 +40,7 @@ class BacktestRequest(BaseModel):
     target_vol: float = 0.15                  # used by volatility_target sizer
     stop_loss_type: str | None = None         # "atr" | "fixed_pct"
     stop_loss_param: float = 0.05             # stop_pct (fixed) or multiplier (atr)
+    benchmark_ticker: str = "SPY"
 
 
 class MetricsSummary(BaseModel):
@@ -61,9 +62,26 @@ class SingleBacktestResult(BaseModel):
     event_decomp: dict[str, dict]
 
 
+class BenchmarkStats(BaseModel):
+    ticker:       str
+    total_return: float | None
+    sharpe:       float | None
+
+
+class AlphaDecomposition(BaseModel):
+    alpha_annual:      float | None
+    beta:              float | None
+    information_ratio: float | None
+    tracking_error:    float | None
+    up_capture:        float | None
+    down_capture:      float | None
+
+
 class BacktestResponse(BaseModel):
-    results:          list[SingleBacktestResult]
-    comparison_table: list[dict]
+    results:           list[SingleBacktestResult]
+    comparison_table:  list[dict]
+    benchmark:         BenchmarkStats | None = None
+    alpha_decomposition: AlphaDecomposition | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -153,4 +171,40 @@ def run_backtest(req: BacktestRequest) -> BacktestResponse:
         for k, v in row.items():
             row[k] = clean_float(v) if isinstance(v, float) else v
 
-    return BacktestResponse(results=results, comparison_table=comparison)
+    # ── Benchmark & alpha decomposition ─────────────────────────────────── #
+    bench_stats_resp = None
+    alpha_decomp_resp = None
+    try:
+        from backtester.data.benchmark import get_benchmark_stats, get_benchmark_returns
+        from backtester.stats.metrics import compute_benchmark_stats
+
+        bench_stats = get_benchmark_stats(req.start_date, req.end_date, req.benchmark_ticker)
+        bench_stats_resp = BenchmarkStats(
+            ticker=bench_stats["ticker"],
+            total_return=bench_stats.get("total_return"),
+            sharpe=bench_stats.get("sharpe"),
+        )
+
+        # Use net returns from first result for alpha decomp
+        if bt_results:
+            bench_rets = get_benchmark_returns(req.start_date, req.end_date, req.benchmark_ticker)
+            if not bench_rets.is_empty():
+                strat_rets = bt_results[0].equity_curve["net_log_ret"]
+                alpha_dict = compute_benchmark_stats(strat_rets, bench_rets)
+                alpha_decomp_resp = AlphaDecomposition(
+                    alpha_annual=      clean_float(alpha_dict.get("alpha_annual")),
+                    beta=              clean_float(alpha_dict.get("beta")),
+                    information_ratio= clean_float(alpha_dict.get("information_ratio")),
+                    tracking_error=    clean_float(alpha_dict.get("tracking_error")),
+                    up_capture=        clean_float(alpha_dict.get("up_capture")),
+                    down_capture=      clean_float(alpha_dict.get("down_capture")),
+                )
+    except Exception:
+        pass  # benchmark enrichment is best-effort
+
+    return BacktestResponse(
+        results=results,
+        comparison_table=comparison,
+        benchmark=bench_stats_resp,
+        alpha_decomposition=alpha_decomp_resp,
+    )

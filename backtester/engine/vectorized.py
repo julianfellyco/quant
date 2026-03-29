@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from backtester.risk.position_sizer import PositionSizer
     from backtester.risk.stop_loss import StopLoss
     from backtester.risk.portfolio_risk import RiskLimits
+    from backtester.strategy.regime import RegimeDetector
 
 
 # --------------------------------------------------------------------------- #
@@ -112,6 +113,7 @@ class VectorizedEngine:
         position_sizer: "PositionSizer | None" = None,
         stop_loss: "StopLoss | None" = None,
         risk_limits: "RiskLimits | None" = None,
+        regime_detector: "RegimeDetector | None" = None,
     ) -> None:
         self.initial_capital = initial_capital
         self.shares_per_unit = shares_per_unit
@@ -120,6 +122,7 @@ class VectorizedEngine:
         self.position_sizer = position_sizer
         self.stop_loss = stop_loss
         self.risk_limits = risk_limits
+        self.regime_detector = regime_detector
 
     # ------------------------------------------------------------------ #
     # Entry point                                                           #
@@ -147,6 +150,9 @@ class VectorizedEngine:
             is_event_window  Boolean
         """
         self._validate(aligned_df)
+        if self.regime_detector is not None and "signal" in aligned_df.columns:
+            from backtester.strategy.regime import apply_regime_filter
+            aligned_df = apply_regime_filter(aligned_df, strategy_name, self.regime_detector)
         df = self._compute_pnl(ticker, aligned_df)
 
         rfr_per_bar = math.log(1 + self.risk_free_rate) / self.ann_factor
