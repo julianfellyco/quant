@@ -5,12 +5,14 @@ import BacktestTab     from './components/BacktestTab'
 import PairsTab        from './components/PairsTab'
 import StressTab       from './components/StressTab'
 import WalkForwardTab  from './components/WalkForwardTab'
+import UniverseTab     from './components/UniverseTab'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'backtest',    label: 'Backtest'      },
   { id: 'pairs',       label: 'Pairs'         },
   { id: 'stress',      label: 'Stress Test'   },
   { id: 'walkforward', label: 'Walk-Forward'  },
+  { id: 'universe',    label: 'Universe'      },
 ]
 
 export default function App() {
@@ -54,6 +56,7 @@ export default function App() {
         {tab === 'pairs'       && <PairsTab />}
         {tab === 'stress'      && <StressTab      tickers={tickers} />}
         {tab === 'walkforward' && <WalkForwardTab tickers={tickers} />}
+        {tab === 'universe'    && <UniverseTab />}
       </main>
     </div>
   )

@@ -3,7 +3,7 @@
 export type Strategy    = 'momentum' | 'mean_reversion'
 export type Granularity = 'daily' | 'hour' | 'minute'
 export type PairState   = 'flat' | 'long_spread' | 'short_spread'
-export type Tab         = 'backtest' | 'pairs' | 'stress' | 'walkforward'
+export type Tab         = 'backtest' | 'pairs' | 'stress' | 'walkforward' | 'universe'
 
 // ── /api/tickers ──────────────────────────────────────────────────────────
 export interface BinaryEvent {
@@ -203,4 +203,41 @@ export interface WalkForwardResponse {
   stability_score:      number | null
   sharpe_degradation:   number | null
   n_folds:              number
+}
+
+// ── /api/universe ─────────────────────────────────────────────────────────
+export interface UniverseRequest {
+  preset:          'pharma' | 'sp500' | 'nasdaq100' | 'custom'
+  custom_tickers:  string[]
+  strategy:        'momentum_rank' | 'mean_reversion_rank' | 'momentum' | 'mean_reversion'
+  start_date:      string
+  end_date:        string
+  top_pct:         number
+  bottom_pct:      number
+  lookback:        number
+  initial_capital: number
+  shares_per_unit: number
+  risk_free_rate:  number
+  max_tickers:     number
+}
+
+export interface TickerResult {
+  ticker:         string
+  net_sharpe:     number | null
+  sortino:        number | null
+  total_return:   number | null
+  max_drawdown:   number | null
+  n_trades:       number
+  total_cost_usd: number
+}
+
+export interface UniverseResponse {
+  tickers_run:          number
+  strategy:             string
+  leaderboard:          TickerResult[]
+  mean_sharpe:          number | null
+  median_sharpe:        number | null
+  pct_positive_sharpe:  number | null
+  best_ticker:          string | null
+  worst_ticker:         string | null
 }

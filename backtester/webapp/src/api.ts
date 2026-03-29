@@ -10,6 +10,8 @@ import type {
   StressResponse,
   WalkForwardRequest,
   WalkForwardResponse,
+  UniverseRequest,
+  UniverseResponse,
 } from './types'
 
 const BASE = '/api'
@@ -44,3 +46,6 @@ export const runStress = (req: StressRequest) =>
 
 export const runWalkForward = (req: WalkForwardRequest) =>
   post<WalkForwardResponse>('/walkforward', req)
+
+export const runUniverse = (req: UniverseRequest) =>
+  post<UniverseResponse>('/universe', req)
