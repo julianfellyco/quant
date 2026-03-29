@@ -94,11 +94,17 @@ class Screener:
             )
 
         try:
-            tables = pd.read_html(url)
+            import io, urllib.request
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; quant-backtester/1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8")
+            tables = pd.read_html(io.StringIO(html))
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to fetch S&P 500 list from Wikipedia: {exc}. "
-                "Ensure lxml is installed: pip install lxml"
+                f"Failed to fetch S&P 500 list from Wikipedia: {exc}."
             ) from exc
 
         # The first table contains constituents; 'Symbol' column has tickers.
@@ -156,11 +162,17 @@ class Screener:
             )
 
         try:
-            tables = pd.read_html(url)
+            import io, urllib.request
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; quant-backtester/1.0)"},
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8")
+            tables = pd.read_html(io.StringIO(html))
         except Exception as exc:
             raise RuntimeError(
-                f"Failed to fetch Nasdaq-100 list from Wikipedia: {exc}. "
-                "Ensure lxml is installed: pip install lxml"
+                f"Failed to fetch Nasdaq-100 list from Wikipedia: {exc}."
             ) from exc
 
         # Find the table with a ticker/symbol column
