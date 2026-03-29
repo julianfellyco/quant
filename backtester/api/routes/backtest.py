@@ -36,6 +36,10 @@ class BacktestRequest(BaseModel):
     use_event_hedge: bool       = True
     entry_z:         float      = 1.5
     exit_z:          float      = 0.3
+    position_sizer_type: str | None = None   # "fixed_fractional" | "volatility_target" | "kelly"
+    target_vol: float = 0.15                  # used by volatility_target sizer
+    stop_loss_type: str | None = None         # "atr" | "fixed_pct"
+    stop_loss_param: float = 0.05             # stop_pct (fixed) or multiplier (atr)
 
 
 class MetricsSummary(BaseModel):

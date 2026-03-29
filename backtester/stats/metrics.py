@@ -179,3 +179,84 @@ def compare_sharpe(
         for r in results
     ]
     return pl.DataFrame(rows).sort(["ticker", "net_sharpe"], descending=[False, True])
+
+
+# --------------------------------------------------------------------------- #
+# Benchmark comparison & alpha decomposition                                    #
+# --------------------------------------------------------------------------- #
+
+def compute_benchmark_stats(
+    strategy_returns: pl.Series,
+    benchmark_returns: pl.Series,
+) -> dict[str, float]:
+    """Compute alpha, beta, information ratio, tracking error vs benchmark.
+
+    Args:
+        strategy_returns:  per-bar log returns of the strategy
+        benchmark_returns: per-bar log returns of the benchmark (e.g. SPY)
+
+    Returns:
+        dict with keys:
+            alpha_annual, beta, information_ratio, tracking_error,
+            up_capture, down_capture
+    """
+    import numpy as np
+
+    strat = strategy_returns.to_numpy()
+    bench = benchmark_returns.to_numpy()
+
+    # Align lengths
+    min_len = min(len(strat), len(bench))
+    strat = strat[:min_len]
+    bench = bench[:min_len]
+
+    if min_len < 2:
+        return {
+            "alpha_annual": float("nan"),
+            "beta": float("nan"),
+            "information_ratio": float("nan"),
+            "tracking_error": float("nan"),
+            "up_capture": float("nan"),
+            "down_capture": float("nan"),
+        }
+
+    # Beta = Cov(strat, bench) / Var(bench)
+    cov_matrix = np.cov(strat, bench)
+    var_bench = cov_matrix[1, 1]
+    beta = float(cov_matrix[0, 1] / var_bench) if var_bench > 0 else 0.0
+
+    # Jensen's alpha (annualised)
+    alpha_daily = float(np.mean(strat)) - beta * float(np.mean(bench))
+    alpha_annual = alpha_daily * TRADING_DAYS_PER_YEAR
+
+    # Tracking error (annualised std of active returns)
+    active_returns = strat - bench
+    tracking_error = float(np.std(active_returns, ddof=1)) * math.sqrt(TRADING_DAYS_PER_YEAR)
+
+    # Information ratio
+    info_ratio = (
+        float(np.mean(active_returns)) * TRADING_DAYS_PER_YEAR / tracking_error
+        if tracking_error > 0 else 0.0
+    )
+
+    # Up/Down capture
+    up_mask  = bench > 0
+    down_mask = bench < 0
+
+    up_capture = (
+        float(np.mean(strat[up_mask])) / float(np.mean(bench[up_mask]))
+        if np.any(up_mask) and float(np.mean(bench[up_mask])) != 0 else float("nan")
+    )
+    down_capture = (
+        float(np.mean(strat[down_mask])) / float(np.mean(bench[down_mask]))
+        if np.any(down_mask) and float(np.mean(bench[down_mask])) != 0 else float("nan")
+    )
+
+    return {
+        "alpha_annual":      round(alpha_annual, 6),
+        "beta":              round(beta, 4),
+        "information_ratio": round(info_ratio, 4),
+        "tracking_error":    round(tracking_error, 4),
+        "up_capture":        round(up_capture, 4) if not math.isnan(up_capture) else float("nan"),
+        "down_capture":      round(down_capture, 4) if not math.isnan(down_capture) else float("nan"),
+    }

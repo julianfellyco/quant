@@ -81,7 +81,12 @@ jobs:
           pip install -r backtester/requirements-ci.txt
           pip install fastapi uvicorn[standard] httpx
 
-      - name: Run tests
+      - name: Lint
+        run: |
+          pip install ruff
+          ruff check backtester/ --ignore E501,F401 || true
+
+      - name: Test with coverage
         working-directory: backtester
         env:
           PYTHONPATH: ${{ github.workspace }}
@@ -89,8 +94,15 @@ jobs:
           pytest tests/ -v \
             --tb=short \
             --cov=backtester \
+            --cov-report=xml \
             --cov-report=term-missing \
             --cov-fail-under=75
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          file: backtester/coverage.xml
+        continue-on-error: true
 
 
   # ─── Job 3: Frontend ──────────────────────────────────────────────────── #

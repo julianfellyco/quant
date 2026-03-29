@@ -34,10 +34,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from .costs import cost_for_ticker
+
+if TYPE_CHECKING:
+    from backtester.risk.position_sizer import PositionSizer
+    from backtester.risk.stop_loss import StopLoss
+    from backtester.risk.portfolio_risk import RiskLimits
 
 
 # --------------------------------------------------------------------------- #
@@ -103,11 +109,17 @@ class VectorizedEngine:
         shares_per_unit: int   = 1_000,
         risk_free_rate:  float = 0.05,
         ann_factor:      int   = 252,
+        position_sizer: "PositionSizer | None" = None,
+        stop_loss: "StopLoss | None" = None,
+        risk_limits: "RiskLimits | None" = None,
     ) -> None:
         self.initial_capital = initial_capital
         self.shares_per_unit = shares_per_unit
         self.risk_free_rate  = risk_free_rate
         self.ann_factor      = ann_factor
+        self.position_sizer = position_sizer
+        self.stop_loss = stop_loss
+        self.risk_limits = risk_limits
 
     # ------------------------------------------------------------------ #
     # Entry point                                                           #
