@@ -168,11 +168,31 @@ def cost_for_ticker(
     is_event:    pl.Series | None = None,
     bar_volume:  pl.Series | None = None,
     avg_volume:  pl.Series | None = None,
+    df:          "pl.DataFrame | None" = None,
 ) -> pl.Series:
-    """Convenience wrapper: looks up calibration params by ticker."""
+    """Convenience wrapper: looks up calibration params by ticker.
+
+    For known tickers (PFE, NVO) uses hand-calibrated COST_PARAMS.
+    For unknown tickers, dynamically calibrates from the price DataFrame
+    using cost_calibrator.calibrate_from_df() — no manual setup required.
+    Pass `df` to enable dynamic calibration for unknown tickers.
+    """
     p = COST_PARAMS.get(ticker)
     if p is None:
-        raise ValueError(f"No cost params for '{ticker}'. Add to COST_PARAMS.")
+        if df is not None:
+            from .cost_calibrator import calibrate_from_df
+            calibrated = calibrate_from_df(ticker, df)
+            p = {
+                "base_bps":            calibrated["base_bps"],
+                "impact_coefficient":  calibrated["impact_coefficient"],
+                "event_spread_mult":   calibrated["event_spread_multiplier"],
+                "base_liquidity":      calibrated["base_liquidity"],
+            }
+        else:
+            raise ValueError(
+                f"No cost params for '{ticker}'. Either add to COST_PARAMS "
+                "or pass df= for automatic calibration."
+            )
     return compute_transaction_costs(
         trade_sizes        = trade_sizes,
         prices             = prices,

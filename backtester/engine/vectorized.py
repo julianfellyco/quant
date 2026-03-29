@@ -188,6 +188,7 @@ class VectorizedEngine:
             is_event    = is_event,
             bar_volume  = bar_vol,
             avg_volume  = avg_vol,
+            df          = df,
         )
 
         df = df.with_columns(cost_series).with_columns(

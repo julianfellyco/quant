@@ -34,6 +34,7 @@ from typing import Callable
 
 import polars as pl
 
+from .cost_calibrator import get_cost_params
 from .costs import COST_PARAMS, compute_transaction_costs
 from .vectorized import BacktestResult
 
@@ -383,35 +384,21 @@ class UniverseEngine:
         avg_vol  = df["avg_volume_20"] if "avg_volume_20" in df.columns else None
         atr      = df["atr_14"].fill_null(df["atr_14"].median() or 0.001)
 
-        # Use calibrated params if known ticker, else DEFAULT_COST_PARAMS
-        if ticker in COST_PARAMS:
-            p = COST_PARAMS[ticker]
-            cost_series = compute_transaction_costs(
-                trade_sizes        = df["trade_size"],
-                prices             = df["close"],
-                atr                = atr,
-                liquidity_constant = p["base_liquidity"],
-                base_bps           = p["base_bps"],
-                impact_coefficient = p["impact_coefficient"],
-                is_event           = is_event,
-                event_spread_mult  = p.get("event_spread_mult", 1.0),
-                bar_volume         = bar_vol,
-                avg_bar_volume     = avg_vol,
-            )
-        else:
-            p = DEFAULT_COST_PARAMS
-            cost_series = compute_transaction_costs(
-                trade_sizes        = df["trade_size"],
-                prices             = df["close"],
-                atr                = atr,
-                liquidity_constant = p["base_liquidity"],
-                base_bps           = p["base_bps"] + p["spread_bps"],
-                impact_coefficient = p["impact_coefficient"],
-                is_event           = is_event,
-                event_spread_mult  = p.get("event_spread_mult", 4.0),
-                bar_volume         = bar_vol,
-                avg_bar_volume     = avg_vol,
-            )
+        # Use calibrated params: known tickers use COST_PARAMS, unknown ones
+        # are auto-calibrated from the ticker's own price/volume history.
+        p = get_cost_params(ticker, df)
+        cost_series = compute_transaction_costs(
+            trade_sizes        = df["trade_size"],
+            prices             = df["close"],
+            atr                = atr,
+            liquidity_constant = p["base_liquidity"],
+            base_bps           = p["base_bps"],
+            impact_coefficient = p["impact_coefficient"],
+            is_event           = is_event,
+            event_spread_mult  = p.get("event_spread_mult", p.get("event_spread_multiplier", 4.0)),
+            bar_volume         = bar_vol,
+            avg_bar_volume     = avg_vol,
+        )
 
         df = df.with_columns(cost_series).with_columns(
             (pl.col("transaction_cost_usd") / self.initial_capital)

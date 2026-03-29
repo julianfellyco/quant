@@ -114,9 +114,9 @@ class DataHandler:
         tickers:     List[str],
         granularity: Granularity = Granularity.DAILY,
     ) -> None:
-        unknown = [t for t in tickers if t not in TICKER_META]
-        if unknown:
-            raise ValueError(f"Unknown tickers: {unknown}")
+        from .metadata import get_metadata
+        # Accept any ticker — unknown ones get live-fetched metadata
+        self._meta = {t: get_metadata(t) for t in tickers}
         self._tickers     = tickers
         self._granularity = granularity
         self._frames:  Dict[str, pl.DataFrame] = {}
@@ -194,7 +194,7 @@ class DataHandler:
 
     def liquidity_constant(self, ticker: str) -> int:
         """Per-bar average volume, used as the baseline liquidity_constant."""
-        base_adv = TICKER_META[ticker]["avg_daily_volume"]
+        base_adv = self._meta[ticker]["avg_daily_volume"]
         return {
             Granularity.DAILY:  base_adv,
             Granularity.HOUR:   base_adv // HOURS_PER_DAY,
@@ -372,8 +372,14 @@ class DataHandler:
         """
         DRIFT_ANNUAL = {"NVO": 0.60, "PFE": -0.08}
         VOL_ANNUAL   = {"NVO": 0.28, "PFE": 0.22}
-        BASE_PRICE   = TICKER_META[ticker]["approx_price_2024"]
-        BASE_ADV     = TICKER_META[ticker]["avg_daily_volume"]
+        # Use instance metadata so any ticker's price/volume is picked up
+        # _synthesise_minute is a @staticmethod but we need meta here —
+        # we resolve it via TICKER_META fallback or a module-level lookup.
+        from .metadata import STATIC_META, _load_cache
+        _all_meta = {**_load_cache(), **STATIC_META}
+        _ticker_meta = _all_meta.get(ticker, {})
+        BASE_PRICE   = float(_ticker_meta.get("approx_price_2024", _ticker_meta.get("approx_price", 50.0)))
+        BASE_ADV     = int(_ticker_meta.get("avg_daily_volume", 1_000_000))
 
         rng = random.Random(seed + hash(ticker) % 1000)
 
