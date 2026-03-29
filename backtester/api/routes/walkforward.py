@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 import math
 from typing import Any
 
@@ -81,12 +82,20 @@ def run_walkforward(req: WalkForwardRequest) -> WalkForwardResponse:
         momentum_signal if req.strategy == "momentum"
         else mean_reversion_signal
     )
+
+    # Filter param_grid to only keys the signal function actually accepts
+    accepted = set(inspect.signature(signal_fn).parameters)
+    filtered_grid = {k: v for k, v in req.param_grid.items() if k in accepted}
+    if not filtered_grid:
+        # Fallback: run with fixed default params (no optimisation)
+        filtered_grid = {"use_event_hedge": [False]}
+
     engine = make_engine(req.initial_capital, req.shares_per_unit, 0.05, req.granularity)
 
     optimizer = WalkForwardOptimizer(
         engine      = engine,
         signal_fn   = signal_fn,
-        param_grid  = req.param_grid,
+        param_grid  = filtered_grid,
         train_bars  = req.train_bars,
         test_bars   = req.test_bars,
         step_bars   = req.step_bars,

@@ -214,11 +214,18 @@ class VectorizedEngine:
             Sharpe = mean(r − rf) / std(r − rf) × √ann_factor
 
         Uses sample standard deviation (ddof = 1).
+        Returns NaN on fewer than 5 bars or near-zero vol (prevents blowup
+        on short OOS windows where std ≈ 0). Clamped to [-50, 50].
         """
+        if len(log_rets) < 5:
+            return float("nan")
         excess = log_rets - rfr_per_bar
         mu     = float(excess.mean() or 0.0)
-        sigma  = float(excess.std()  or 1e-9)
-        return (mu / sigma) * math.sqrt(self.ann_factor)
+        sigma  = float(excess.std()  or 0.0)
+        if sigma < 1e-8:
+            return float("nan")
+        raw = (mu / sigma) * math.sqrt(self.ann_factor)
+        return max(-50.0, min(50.0, raw))
 
     def _sortino(self, log_rets: pl.Series, rfr_per_bar: float) -> float:
         """

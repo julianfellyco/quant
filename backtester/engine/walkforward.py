@@ -247,12 +247,17 @@ class WalkForwardOptimizer:
                 oos_mdd     = oos_result.max_drawdown,
             ))
 
-        oos_sharpes = [f.oos_sharpe for f in fold_results]
-        is_sharpes  = [f.is_sharpe  for f in fold_results]
+        oos_sharpes_raw = [f.oos_sharpe for f in fold_results]
+        is_sharpes_raw  = [f.is_sharpe  for f in fold_results]
 
-        agg_oos  = statistics.mean(oos_sharpes)
-        agg_is   = statistics.mean(is_sharpes)
-        stab     = statistics.stdev(oos_sharpes) if len(oos_sharpes) > 1 else 0.0
+        # Drop NaN folds (e.g. tiny OOS windows with near-zero vol)
+        import math as _math
+        oos_sharpes = [v for v in oos_sharpes_raw if v is not None and _math.isfinite(v)]
+        is_sharpes  = [v for v in is_sharpes_raw  if v is not None and _math.isfinite(v)]
+
+        agg_oos = statistics.mean(oos_sharpes) if oos_sharpes else float("nan")
+        agg_is  = statistics.mean(is_sharpes)  if is_sharpes  else float("nan")
+        stab    = statistics.stdev(oos_sharpes) if len(oos_sharpes) > 1 else 0.0
 
         return WalkForwardResult(
             folds                 = fold_results,
