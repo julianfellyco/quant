@@ -31,6 +31,10 @@ data_cache/
 # Jupyter
 .ipynb_checkpoints/
 
+# Node
+node_modules/
+.npm/
+
 # IDE
 .idea/
 .vscode/
