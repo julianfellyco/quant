@@ -5,6 +5,7 @@ import EquityCurveChart  from './EquityCurveChart'
 import MetricsGrid       from './MetricsGrid'
 import EventDecompPanel  from './EventDecompPanel'
 import ComparisonTable   from './ComparisonTable'
+import RiskDashboard     from './RiskDashboard'
 
 interface Props { tickers: TickerInfo[] }
 
@@ -204,6 +205,8 @@ export default function BacktestTab({ tickers }: Props) {
           {result.comparison_table.length > 1 && (
             <ComparisonTable rows={result.comparison_table} />
           )}
+
+          <RiskDashboard benchmark={result.benchmark} alphaDecomp={result.alpha_decomposition} />
         </div>
       )}
     </div>

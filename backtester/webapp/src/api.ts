@@ -12,6 +12,8 @@ import type {
   WalkForwardResponse,
   UniverseRequest,
   UniverseResponse,
+  PairsScanRequest,
+  PairsScanResponse,
 } from './types'
 
 const BASE = '/api'
@@ -49,3 +51,6 @@ export const runWalkForward = (req: WalkForwardRequest) =>
 
 export const runUniverse = (req: UniverseRequest) =>
   post<UniverseResponse>('/universe', req)
+
+export const scanPairs = (req: PairsScanRequest) =>
+  post<PairsScanResponse>('/pairs/scan', req)

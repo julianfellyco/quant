@@ -3,7 +3,7 @@
 export type Strategy    = 'momentum' | 'mean_reversion'
 export type Granularity = 'daily' | 'hour' | 'minute'
 export type PairState   = 'flat' | 'long_spread' | 'short_spread'
-export type Tab         = 'backtest' | 'pairs' | 'stress' | 'walkforward' | 'universe'
+export type Tab         = 'backtest' | 'pairs' | 'stress' | 'walkforward' | 'universe' | 'pairs_scanner'
 
 // ── /api/tickers ──────────────────────────────────────────────────────────
 export interface BinaryEvent {
@@ -86,6 +86,8 @@ export interface SingleBacktestResult {
 export interface BacktestResponse {
   results:          SingleBacktestResult[]
   comparison_table: MetricsSummary[]
+  benchmark?:            BenchmarkStats | null
+  alpha_decomposition?:  AlphaDecomposition | null
 }
 
 // ── /api/pairs ────────────────────────────────────────────────────────────
@@ -240,4 +242,59 @@ export interface UniverseResponse {
   pct_positive_sharpe:  number | null
   best_ticker:          string | null
   worst_ticker:         string | null
+}
+
+// ── Pairs Scanner ─────────────────────────────────────────────────────────── //
+
+export interface PairResult {
+  ticker_a: string
+  ticker_b: string
+  coint_pvalue: number
+  half_life: number
+  hurst_exponent: number
+  spread_volatility: number
+  correlation: number
+  hedge_ratio: number
+  is_tradeable: boolean
+}
+
+export interface ScanMetadata {
+  universe_size: number
+  pairs_tested: number
+  pairs_cointegrated: number
+  pairs_tradeable: number
+}
+
+export interface PairsScanRequest {
+  universe: string
+  custom_tickers: string[]
+  start_date: string
+  end_date: string
+  lookback_days: number
+  min_coint_pvalue: number
+  max_half_life: number
+  min_half_life: number
+  max_hurst: number
+}
+
+export interface PairsScanResponse {
+  pairs: PairResult[]
+  scan_metadata: ScanMetadata
+}
+
+// ── Benchmark / Alpha decomposition ──────────────────────────────────────── //
+
+export interface BenchmarkStats {
+  ticker: string
+  total_return: number | null
+  sharpe: number | null
+}
+
+export interface AlphaDecomposition {
+  alpha_annual: number | null
+  beta: number | null
+  information_ratio: number | null
+  tracking_error: number | null
+  up_capture: number | null
+  down_capture: number | null
 }

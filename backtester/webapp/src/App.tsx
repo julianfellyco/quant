@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react'
 import type { Tab, TickerInfo } from './types'
 import { fetchTickers } from './api'
-import BacktestTab     from './components/BacktestTab'
-import PairsTab        from './components/PairsTab'
-import StressTab       from './components/StressTab'
-import WalkForwardTab  from './components/WalkForwardTab'
-import UniverseTab     from './components/UniverseTab'
+import BacktestTab        from './components/BacktestTab'
+import PairsTab           from './components/PairsTab'
+import StressTab          from './components/StressTab'
+import WalkForwardTab     from './components/WalkForwardTab'
+import UniverseTab        from './components/UniverseTab'
+import PairsScannerPanel  from './components/PairsScannerPanel'
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'backtest',    label: 'Backtest'      },
-  { id: 'pairs',       label: 'Pairs'         },
-  { id: 'stress',      label: 'Stress Test'   },
-  { id: 'walkforward', label: 'Walk-Forward'  },
-  { id: 'universe',    label: 'Universe'      },
+  { id: 'backtest',      label: 'Backtest'       },
+  { id: 'pairs',         label: 'Pairs'          },
+  { id: 'stress',        label: 'Stress Test'    },
+  { id: 'walkforward',   label: 'Walk-Forward'   },
+  { id: 'universe',      label: 'Universe'       },
+  { id: 'pairs_scanner', label: 'Pairs Scanner'  },
 ]
 
 export default function App() {
@@ -52,11 +54,12 @@ export default function App() {
 
       {/* ── Body ───────────────────────────────────────────────── */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
-        {tab === 'backtest'    && <BacktestTab    tickers={tickers} />}
-        {tab === 'pairs'       && <PairsTab />}
-        {tab === 'stress'      && <StressTab      tickers={tickers} />}
-        {tab === 'walkforward' && <WalkForwardTab tickers={tickers} />}
-        {tab === 'universe'    && <UniverseTab />}
+        {tab === 'backtest'      && <BacktestTab       tickers={tickers} />}
+        {tab === 'pairs'         && <PairsTab />}
+        {tab === 'stress'        && <StressTab         tickers={tickers} />}
+        {tab === 'walkforward'   && <WalkForwardTab    tickers={tickers} />}
+        {tab === 'universe'      && <UniverseTab />}
+        {tab === 'pairs_scanner' && <PairsScannerPanel />}
       </main>
     </div>
   )
