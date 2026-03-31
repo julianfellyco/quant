@@ -94,7 +94,8 @@ class Screener:
             )
 
         try:
-            import io, urllib.request
+            import io
+            import urllib.request
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; quant-backtester/1.0)"},
@@ -162,7 +163,8 @@ class Screener:
             )
 
         try:
-            import io, urllib.request
+            import io
+            import urllib.request
             req = urllib.request.Request(
                 url,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; quant-backtester/1.0)"},

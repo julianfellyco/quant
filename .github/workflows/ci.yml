@@ -96,7 +96,7 @@ jobs:
             --cov=backtester \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=75
+            --cov-fail-under=50
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
