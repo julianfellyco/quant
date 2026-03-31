@@ -90,6 +90,28 @@ class BacktestResponse(BaseModel):
 
 @router.post("/backtest", response_model=BacktestResponse)
 def run_backtest(req: BacktestRequest) -> BacktestResponse:
+    """Run a vectorized backtest for one or more tickers and strategies.
+
+    Fetches price data via DataHandler (parquet cache + yfinance fallback),
+    computes signals, runs VectorizedEngine for each ticker/strategy combination,
+    and returns per-run metrics, equity curves, event-window decomposition, and
+    optional benchmark/alpha statistics against the requested benchmark ticker.
+
+    Args:
+        req: BacktestRequest containing tickers, date range, strategy names,
+             granularity, capital parameters, position-sizer config, stop-loss
+             config, and benchmark ticker.
+
+    Returns:
+        BacktestResponse with per-run results, a cross-run comparison table,
+        benchmark statistics, and alpha decomposition (all best-effort; benchmark
+        enrichment is skipped silently if data is unavailable).
+
+    Raises:
+        HTTPException 400: Invalid date format, unsupported granularity, or
+            unknown strategy name.
+        HTTPException 500: Data loading failure.
+    """
     try:
         start = dt.date.fromisoformat(req.start_date)
         end   = dt.date.fromisoformat(req.end_date)

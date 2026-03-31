@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from api.routes import backtest, pairs, stress, tickers, universe, walkforward
+from backtester.api.routes.paper_trading import router as paper_router
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
@@ -39,6 +40,7 @@ app.include_router(pairs.router,       prefix="/api", tags=["pairs"])
 app.include_router(stress.router,      prefix="/api", tags=["stress"])
 app.include_router(walkforward.router, prefix="/api", tags=["walkforward"])
 app.include_router(universe.router,   prefix="/api", tags=["universe"])
+app.include_router(paper_router,      prefix="/api", tags=["paper_trading"])
 
 # ── Production: serve React app ─────────────────────────────────────────── #
 if STATIC_DIR.exists():

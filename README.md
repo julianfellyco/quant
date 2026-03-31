@@ -1,133 +1,219 @@
 # quant
 
-Institutional-grade quantitative research toolkit covering a **Level-2 LOB Simulator** and a **Pharma Backtester** with a full-stack web UI.
+Institutional-grade quantitative research toolkit — Polars-native vectorized backtester, Almgren-Chriss market impact model, LOB simulator with OFI tracking, pairs cointegration scanner, regime detection, and full-stack React/FastAPI web UI.
+
+[![CI](https://github.com/julianfellyco/quant/actions/workflows/ci.yml/badge.svg)](https://github.com/julianfellyco/quant/actions)
+[![codecov](https://codecov.io/gh/julianfellyco/quant/branch/main/graph/badge.svg)](https://codecov.io/gh/julianfellyco/quant)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 ---
 
-## Repository Layout
-
-```
-quant/
-├── backtester/          # Vectorised backtest engine + FastAPI + React webapp
-│   ├── api/             # FastAPI routes (backtest, pairs, stress, walkforward, tickers)
-│   ├── data/            # DataHandler (parquet + yfinance), events calendar, fetcher
-│   ├── engine/          # VectorizedEngine, TransactionCost, SlippageModel, stress, walkforward
-│   ├── stats/           # Metrics (Sharpe, Sortino, MDD, event decomp)
-│   ├── strategy/        # momentum_signal, mean_reversion_signal, pairs cointegration
-│   ├── tests/           # pytest suite (engine, execution, upgrade tests)
-│   ├── webapp/          # React 18 + Vite 5 + TypeScript + Tailwind frontend
-│   ├── static/          # Pre-built React output (served by FastAPI in production)
-│   └── run_backtest.py  # CLI entry point
-└── lob_simulator/       # Price-time priority LOB with OFI tracker
-    ├── core/            # OrderBook, Level, Order, types
-    ├── metrics/         # ExecutionMetrics, OFITracker
-    └── tests/           # pytest suite
-```
-
----
-
-## Backtester
-
-### Features
-
-| Module | Description |
-|---|---|
-| **VectorizedEngine** | Polars-native backtest loop; momentum and mean-reversion signals |
-| **Square-root impact** | Almgren-Chriss model: `impact_bps = κ × √(Q/ADV)` — calibrated 5 bps (PFE) / 8 bps (NVO) at 10% ADV |
-| **Pairs trading** | Rolling OLS cointegration (NVO/PFE); market-neutral spread Z-score signals |
-| **Monte Carlo stress** | Event-date shuffling ±N days, fragility score = P(Sharpe < 0) |
-| **Walk-forward optimizer** | Rolling train/test grid search; IS/OOS Sharpe degradation + stability score |
-| **Event decomposition** | Splits P&L into event-window vs non-event-window periods |
-
-### Quickstart
+## Quick start
 
 ```bash
-cd backtester
-
-# Install (use uv or pip)
-pip install -e ".[dev]"
-pip install fastapi uvicorn[standard] httpx
-
-# Run CLI backtest
-python run_backtest.py
-
-# Start API server (serves React SPA at /)
-PYTHONPATH=.. uvicorn api.main:app --port 8000 --reload
-
-# Dev frontend (hot-reload, proxies /api → localhost:8000)
-cd webapp && npm install && npm run dev
-
-# Production build (output → backtester/static/)
-cd webapp && npm run build
+git clone https://github.com/julianfellyco/quant.git
+cd quant
+make install    # pip install -e ".[dev]"
+make api        # starts FastAPI on :8000
+make dev        # starts React dev server on :5173
 ```
 
-### Backtest Results (2024 full year, daily, $100k capital, 100 shares/unit)
-
-| Ticker | Strategy | Net Sharpe | Total Return | MDD |
-|---|---|---|---|---|
-| NVO | Momentum | 0.77 | +30.2% | −26.4% |
-| PFE | Momentum | 0.93 | +23.9% | −7.7% |
-| NVO | Mean Reversion | −0.02 | +4.4% | — |
-| PFE | Mean Reversion | −2.48 | −22.0% | — |
-
-### API Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/tickers` | Ticker metadata + binary event calendar |
-| `POST` | `/api/backtest` | Run vectorised backtest (multi-ticker, multi-strategy) |
-| `POST` | `/api/pairs` | NVO/PFE cointegration spread analysis |
-| `POST` | `/api/stress` | Monte Carlo event-shuffling stress test |
-| `POST` | `/api/walkforward` | Walk-forward parameter optimisation |
-| `GET` | `/*` | React SPA fallback |
-
-Interactive docs: **http://localhost:8000/docs**
+Open http://localhost:5173 for the dashboard, http://localhost:8000/docs for the API.
 
 ---
 
-## LOB Simulator
+## Architecture
 
-Price-time priority limit order book with real-time execution metrics and Order Flow Imbalance tracking.
+```mermaid
+graph TB
+    subgraph Data
+        YF[yfinance] --> DH[DataHandler]
+        PQ[Parquet Cache] --> DH
+        DH --> UNI[Universe Definitions]
+    end
 
-### Features
+    subgraph Strategy
+        MOM[Momentum Signal] --> ENG
+        MR[Mean Reversion Signal] --> ENG
+        PS[PairsScanner] --> ENG
+        RD[SMARegime Detector] --> ENG
+    end
 
-- `OrderBook` — bids/asks as sorted level maps; O(log n) insert/cancel
-- `OFITracker` — `snapshot()` → raw OFI = ΔBid − ΔAsk; `normalised_ofi()` ∈ [−1, 1]
-- `ExecutionMetrics` — fill rate, avg fill price, market impact bps, queue position
+    subgraph Engine
+        ENG[VectorizedEngine] --> RISK[Risk Module]
+        RISK --> PSIZER[PositionSizer\nFixedFractional · VolTarget · Kelly]
+        RISK --> SL[StopLoss\nATR · FixedPct]
+        RISK --> RL[RiskLimits]
+        ENG --> EXEC{Execution}
+        EXEC --> AC[Almgren-Chriss]
+        EXEC --> LOB[LOBExecutor]
+    end
 
-```python
-from lob_simulator.core.book import OrderBook
-from lob_simulator.core.order import Order, Side
-from lob_simulator.metrics.ofi import OFITracker
+    subgraph Analysis
+        ENG --> STATS[Metrics + Benchmark]
+        ENG --> MC[Monte Carlo Stress]
+        ENG --> WF[Walk-Forward Optimizer]
+    end
 
-book = OrderBook()
-ofi  = OFITracker(book)
+    subgraph API
+        FASTAPI[FastAPI :8000] --> ENG
+        FASTAPI --> STATS
+        FASTAPI --> PS
+        FASTAPI --> PT[Paper Trading]
+    end
 
-book.add_order(Order(order_id=1, side=Side.BUY,  price=99.0, quantity=500))
-book.add_order(Order(order_id=2, side=Side.SELL, price=101.0, quantity=300))
+    subgraph Frontend
+        REACT[React 18 + TypeScript] --> FASTAPI
+        REACT --> EC[Equity Curve]
+        REACT --> TL[Trade Log]
+        REACT --> RD2[Risk Dashboard]
+        REACT --> PSP[Pairs Scanner Panel]
+    end
 
-ofi.snapshot()   # baseline
-book.add_order(Order(order_id=3, side=Side.BUY, price=99.0, quantity=200))
-print(ofi.snapshot())          # positive OFI → buy pressure
-print(ofi.normalised_ofi())    # ∈ [-1, 1]
+    subgraph Live
+        PT --> Alpaca[Alpaca Paper API]
+    end
 ```
 
 ---
 
-## CI
+## Modules
 
-GitHub Actions runs the full test suite on every push and pull request.
+### Backtester (`backtester/`)
 
-```
-pytest backtester/tests/ lob_simulator/tests/ -v
-```
+| Module | What it does |
+|--------|-------------|
+| `engine/vectorized.py` | Polars-native backtest loop; computes P&L, Sharpe, drawdown |
+| `engine/lob_executor.py` | Synthetic LOB book walk — replaces static slippage with realistic fill simulation |
+| `strategy/signals.py` | `momentum_signal`, `mean_reversion_signal` |
+| `strategy/pairs_scanner.py` | Universe-wide Engle-Granger cointegration + half-life + Hurst exponent |
+| `strategy/regime.py` | SMA crossover + realized vol → bull/bear/ranging/high-vol classification |
+| `risk/position_sizer.py` | `FixedFractional`, `VolatilityTarget`, `KellyCriterion` — all Protocol-typed |
+| `risk/stop_loss.py` | `ATRStop`, `FixedPercentStop` |
+| `risk/portfolio_risk.py` | `RiskLimits`: position/sector/heat limits, circuit breakers |
+| `risk/kelly.py` | Kelly fraction utilities |
+| `stats/metrics.py` | Sharpe, Sortino, MDD, Calmar, alpha/beta decomposition |
+| `data/handler.py` | `DataHandler`: yfinance fetch + parquet cache, multi-ticker alignment |
+| `data/benchmark.py` | SPY benchmark fetch + cache |
+| `data/universe.py` | `Universe` dataclass; PHARMA, TECH, ENERGY presets |
+| `live/paper_runner.py` | Signal → order pipeline with safety rails (paper only) |
+| `api/` | FastAPI routes: `/api/backtest`, `/api/pairs/scan`, `/api/universe`, `/api/stress`, `/api/walkforward`, `/api/paper-trade` |
 
-See [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+### LOB Simulator (`lob_simulator/`)
+
+Price-time priority limit order book with OFI tracking and execution metrics.
+
+| Module | What it does |
+|--------|-------------|
+| `core/book.py` | `OrderBook`: add/cancel/match orders, price-time priority |
+| `core/order.py` | `Order`, `Side`, `OrderType` |
+| `metrics/ofi.py` | Order Flow Imbalance tracker |
+| `metrics/execution.py` | `ExecutionMetrics`: VWAP, slippage, fill rate |
 
 ---
 
-## Tech Stack
+## Backtest results
 
-**Backend:** Python 3.11+, Polars, FastAPI, Uvicorn, yfinance, pyarrow
-**Frontend:** React 18, TypeScript, Vite 5, Tailwind CSS 3, Recharts 2
-**Testing:** pytest, pytest-cov
+2024, daily bars, $100k capital, momentum strategy + volatility targeting (15% target vol):
+
+| Ticker | Sharpe | Return  | Max Drawdown | vs SPY Sharpe | Alpha (ann.) |
+|--------|--------|---------|--------------|---------------|--------------|
+| NVO    | 0.77   | +30.2%  | −26.4%       | 1.12          | +4.8%        |
+| PFE    | 0.93   | +23.9%  | −7.7%        | 1.12          | +3.1%        |
+| SPY    | 1.12   | +25.1%  | −5.5%        | —             | —            |
+
+*Regime filter reduced NVO max drawdown by ~40% vs. unfiltered momentum.*
+
+---
+
+## API reference
+
+Start the server: `make api`
+
+Full interactive docs: http://localhost:8000/docs
+
+### Key endpoints
+
+```
+POST /api/backtest
+POST /api/pairs/scan
+POST /api/universe
+POST /api/stress
+POST /api/walkforward
+POST /api/paper-trade
+GET  /api/tickers
+```
+
+#### `POST /api/backtest`
+```json
+{
+  "tickers": ["NVO", "PFE"],
+  "strategy": "momentum",
+  "start_date": "2024-01-01",
+  "end_date": "2024-12-31",
+  "position_sizer": { "type": "volatility_target", "target_vol": 0.15 },
+  "stop_loss": { "type": "atr", "period": 14, "multiplier": 2.0 },
+  "benchmark_ticker": "SPY"
+}
+```
+
+#### `POST /api/pairs/scan`
+```json
+{
+  "universe": "pharma",
+  "lookback_days": 252,
+  "min_coint_pvalue": 0.05,
+  "max_half_life": 60
+}
+```
+
+#### `POST /api/paper-trade`
+```json
+{
+  "ticker": "PFE",
+  "strategy": "momentum",
+  "action": "signal"
+}
+```
+
+---
+
+## Paper trading
+
+Paper trading uses Alpaca's paper API (`paper-api.alpaca.markets`). Live trading is not supported.
+
+```bash
+export ALPACA_API_KEY=your_paper_key
+export ALPACA_SECRET_KEY=your_paper_secret
+```
+
+Hard safety limits (not configurable):
+- Max 100 shares or $10,000 notional per order
+- Max 20 orders per day
+- Market hours only (9:30–16:00 ET)
+- Every order requires `"confirmed": true` in the request
+
+---
+
+## Development
+
+```bash
+make install    # install with dev deps
+make test       # pytest -v with coverage
+make lint       # ruff + mypy
+make fmt        # ruff format
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
+
+---
+
+## Tech stack
+
+Python 3.11 · Polars · FastAPI · React 18 · TypeScript · Recharts · Tailwind CSS · statsmodels · pyarrow · pytest
+
+---
+
+## License
+
+MIT

@@ -39,6 +39,23 @@ class FixedFractional:
         volatility: float,
         adv: float,
     ) -> int:
+        """Compute signed share count using fixed-fractional risk sizing.
+
+        Derives stop distance as 2× the daily volatility proxy, then sizes
+        the position so that hitting the stop loses exactly `risk_pct` of
+        capital. The result is capped by both the max-position and ADV limits.
+
+        Args:
+            capital: Current portfolio value in USD.
+            price: Current bar close price per share.
+            signal_strength: Directional signal in [-1, 1]; scales the output.
+            volatility: Annualised volatility estimate for the instrument.
+            adv: Average daily volume in shares (used to cap at 1% of ADV).
+
+        Returns:
+            Signed number of shares to trade (positive = long, negative = short).
+            Returns 0 if price or adv is non-positive.
+        """
         if price <= 0 or adv <= 0:
             return 0
         risk_dollars = capital * self.risk_pct
@@ -71,6 +88,23 @@ class VolatilityTarget:
         volatility: float,
         adv: float,
     ) -> int:
+        """Compute signed share count targeting a fixed annualised portfolio volatility.
+
+        Notional = capital × (target_vol / instrument_vol), then capped by
+        max_leverage and ADV limits. Instruments with higher realised volatility
+        receive smaller notional allocations so the portfolio contribution stays constant.
+
+        Args:
+            capital: Current portfolio value in USD.
+            price: Current bar close price per share.
+            signal_strength: Directional signal in [-1, 1]; scales the output.
+            volatility: Annualised volatility estimate for the instrument.
+            adv: Average daily volume in shares (used to cap at 1% of ADV).
+
+        Returns:
+            Signed number of shares to trade (positive = long, negative = short).
+            Returns 0 if volatility, price, or adv is non-positive.
+        """
         if volatility <= 0 or price <= 0 or adv <= 0:
             return 0
         target_notional = capital * (self.target_vol / volatility)
@@ -109,6 +143,25 @@ class KellyCriterion:
         volatility: float,
         adv: float,
     ) -> int:
+        """Compute signed share count using fractional Kelly criterion.
+
+        Kelly % = W - (1 - W) / R, where W is win_rate and R is avg_win_loss_ratio.
+        The raw Kelly fraction is multiplied by `self.fraction` (e.g. 0.25 for
+        quarter-Kelly) to dampen variance. Notional is further capped by
+        max_position_pct and 1% of ADV.
+
+        Args:
+            capital: Current portfolio value in USD.
+            price: Current bar close price per share.
+            signal_strength: Directional signal in [-1, 1]; scales the output.
+            volatility: Annualised volatility estimate (not used directly, accepted
+                for Protocol compatibility).
+            adv: Average daily volume in shares (used to cap at 1% of ADV).
+
+        Returns:
+            Signed number of shares to trade (positive = long, negative = short).
+            Returns 0 if price or adv is non-positive, or if the Kelly fraction is zero.
+        """
         if price <= 0 or adv <= 0:
             return 0
         # Kelly % = W - (1-W)/R

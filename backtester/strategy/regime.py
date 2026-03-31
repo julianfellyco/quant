@@ -71,7 +71,26 @@ class SMARegime:
         self.vol_threshold = vol_threshold
 
     def detect(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Add 'regime' column to df."""
+        """Classify each bar into a market regime and add a 'regime' column.
+
+        Computes a fast SMA, slow SMA, and rolling realised volatility, then
+        applies the following priority rules:
+
+        1. Realised vol > vol_threshold  → ``HIGH_VOL`` (overrides SMA signal)
+        2. Fast SMA > slow SMA           → ``BULL_TRENDING``
+        3. Fast SMA < slow SMA           → ``BEAR_TRENDING``
+        4. Otherwise                     → ``RANGING``
+
+        Intermediate columns (_sma_fast, _sma_slow, _realized_vol) are dropped
+        before returning.
+
+        Args:
+            df: Polars DataFrame containing at minimum a ``close`` column.
+
+        Returns:
+            Input DataFrame with an additional ``regime`` string column whose
+            values are drawn from the ``Regime`` enum (e.g. ``"bull_trending"``).
+        """
         df = df.with_columns([
             pl.col("close").rolling_mean(self.fast_period, min_samples=1).alias("_sma_fast"),
             pl.col("close").rolling_mean(self.slow_period, min_samples=1).alias("_sma_slow"),

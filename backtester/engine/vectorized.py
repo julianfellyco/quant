@@ -115,6 +115,25 @@ class VectorizedEngine:
         risk_limits: "RiskLimits | None" = None,
         regime_detector: "RegimeDetector | None" = None,
     ) -> None:
+        """Initialise the engine with capital, sizing, and optional risk plug-ins.
+
+        Args:
+            initial_capital: Starting USD capital; used as the denominator when
+                converting absolute cost dollars into a fractional return deduction.
+            shares_per_unit: Shares per signal unit (+1 or -1). Set to 1 for
+                fractional / notional-based sizing.
+            risk_free_rate: Annualised risk-free rate (e.g. 0.05 = 5%). Applied
+                per-bar in Sharpe and Sortino calculations.
+            ann_factor: Trading bars per year. 252 for daily bars,
+                98_280 for 1-minute bars.
+            position_sizer: Optional PositionSizer implementation. When supplied,
+                overrides the fixed shares_per_unit sizing.
+            stop_loss: Optional StopLoss implementation applied per bar.
+            risk_limits: Optional RiskLimits; enforces position/sector/heat caps
+                and circuit-breaker logic.
+            regime_detector: Optional RegimeDetector; zeroes out signals in
+                unfavourable regimes before the P&L loop runs.
+        """
         self.initial_capital = initial_capital
         self.shares_per_unit = shares_per_unit
         self.risk_free_rate  = risk_free_rate
